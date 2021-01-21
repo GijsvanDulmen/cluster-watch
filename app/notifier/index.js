@@ -123,7 +123,7 @@ const checkApiServerResponse = () => {
     });
 };
 
-setInterval(() => checkApiServerResponse(), intervals.API_RESPONSE_TIMES);
+// setInterval(() => checkApiServerResponse(), intervals.API_RESPONSE_TIMES);
 // checkApiServerResponse();
 
 // check if nodes are gone!
