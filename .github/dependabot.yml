@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # nodejs
+  - package-ecosystem: "npm"
+    directory: "/app/notifier"
+    schedule:
+      interval: "daily"
+
+  # docker
+  - package-ecosystem: "docker"
+    directory: "/app/notifier"
+    schedule:
+      interval: "daily"
