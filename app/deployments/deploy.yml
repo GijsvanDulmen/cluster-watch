@@ -29,7 +29,7 @@ metadata:
   name: cluster-watch-notifier-binding
 subjects:
 - kind: ServiceAccount
-  name: cluster-watch-notifier
+  name: cluster-watch-svc-account
   namespace: cluster-watch
 roleRef:
   kind: ClusterRole

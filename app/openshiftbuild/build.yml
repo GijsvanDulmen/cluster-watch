@@ -1,0 +1,29 @@
+kind: ImageStream
+apiVersion: image.openshift.io/v1
+metadata:
+  name: cluster-watch-notifier
+  namespace: cluster-watch
+spec:
+  lookupPolicy:
+    local: false
+---
+kind: BuildConfig
+apiVersion: build.openshift.io/v1
+metadata:
+  name: "cluster-watch-build" 
+  namespace: cluster-watch
+spec:
+  runPolicy: "Serial"
+  source: 
+    type: Git
+    git:
+      uri: https://github.com/GijsvanDulmen/cluster-watch
+      ref: main
+    contextDir: app/notifier
+  strategy:
+    type: Docker
+    dockerStrategy: {}
+  output: 
+    to:
+      kind: ImageStreamTag
+      name: cluster-watch-notifier:latest
