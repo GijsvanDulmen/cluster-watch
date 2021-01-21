@@ -1,0 +1,17 @@
+{
+  "name": "cluster-watch",
+  "version": "1.0.0",
+  "description": "Notifier for node and namespace events",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Gijs van Dulmen",
+  "license": "Mozilla Public License 2.0",
+  "dependencies": {
+    "@kubernetes/client-node": "^0.12.3",
+    "@slack/web-api": "^5.13.0",
+    "express": "^4.17.1",
+    "winston": "^3.3.3"
+  }
+}
