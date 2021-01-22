@@ -1,9 +1,11 @@
 const winston = require('winston');
-const { WebClient } = require('@slack/web-api');
 const express = require('express');
 const app = express();
+const SlackBot = require('./lib/SlackBot.js');
 
 const k8s = require('@kubernetes/client-node');
+const NamespaceWatcher = require('./lib/NamespaceWatcher.js');
+const NodeWatcher = require('./lib/NodeWatcher.js');
 
 // setup logger
 const logger = winston.createLogger({
@@ -28,35 +30,13 @@ if ( process.env.KUBERNETES_SERVICE_HOST ) {
     kc.loadFromDefault();
 }
 
-const slackToken = process.env.SLACK_TOKEN;
-const slackChannel = process.env.SLACK_CHANNEL;
-const slackApi = new WebClient(slackToken);
-
-logger.info("using slack channel: " + slackChannel);
+// setup slack bot
+const bot = new SlackBot(process.env.SLACK_CHANNEL, process.env.SLACK_TOKEN, logger);
 
 const coreV1Api = kc.makeApiClient(k8s.CoreV1Api);
 
 const cache = {};
 const taintTimeCache = {};
-let namespaceCache = {};
-let nodeCache = {};
-
-const collectNames = res => {
-    let obj = {};
-    res.body.items.forEach(item => {
-        obj[item.metadata.name] = true;
-    });
-    return obj;
-};
-
-coreV1Api.listNamespace().then(res => {
-    namespaceCache = collectNames(res);
-    logger.info("namespace cache filled with " + Object.keys(namespaceCache).length + " items");
-});
-coreV1Api.listNode().then(res => {
-    nodeCache = collectNames(res);
-    logger.info("node cache filled with " + Object.keys(nodeCache).length + " items");
-});
 
 const taintsToWatch = {
     NotReady: 'node.kubernetes.io/not-ready',
@@ -68,8 +48,6 @@ const taintsToWatch = {
     Unschedulable: 'node.kubernetes.io/unschedulable',
     Uninitialized: 'node.cloudprovider.kubernetes.io/uninitialized'
 };
-
-const watch = new k8s.Watch(kc);
 
 const colors = {
     RED: '#FF0000',
@@ -93,25 +71,9 @@ const intervals = {
     STILL_TAINTED: 1000*60*5,
 };
 
-const sendMessageToSlack = (text, color, icon) => {
-    slackApi.chat.postMessage({
-        channel: slackChannel,
-        attachments: [
-            {
-                text: icon + ' ' + text,
-                color: color
-            }
-        ]
-    }).then(res => {
-        logger.info(res);
-    }).catch(err => {
-        logger.error(err);
-    });
-};
-
 // watchdog every 1 hour
 setInterval(() => {
-    sendMessageToSlack("i am still running and should be after an hour", colors.BLUE, icons.INFO);
+    bot.send("i am still running and should be after an hour", colors.BLUE, icons.INFO);
 }, intervals.WATCHDOG);
 
 // api server response time
@@ -121,7 +83,7 @@ const checkApiServerResponse = () => {
         const end = new Date();
         const ms = end.getTime() - start.getTime();
         if ( ms > 30 ) {
-            sendMessageToSlack("api server response time `" + ms + "ms`", colors.YELLOW, icons.HOURGLASS);
+            bot.send("api server response time `" + ms + "ms`", colors.YELLOW, icons.HOURGLASS);
         }
     });
 };
@@ -129,59 +91,29 @@ const checkApiServerResponse = () => {
 setInterval(() => checkApiServerResponse(), intervals.API_RESPONSE_TIMES);
 checkApiServerResponse();
 
-// check if nodes are gone!
-setInterval(() => {
-    coreV1Api.listNode().then(res => {
-        const names = collectNames(res);
-        Object.keys(nodeCache).forEach(name => {
-            if ( names[name] == undefined ) {
-                sendMessageToSlack("node deleted from cluster `"+name+"`", colors.RED, icons.ERROR);
-                delete nodeCache[name];
+// const customObjectsApi = kc.makeApiClient(k8s.CustomObjectsApi);
 
-                Object.keys(taintTimeCache[name]).forEach(taintKey => {
-                    clearInterval(taintTimeCache[name][taintKey]);
-                });
-                delete taintTimeCache[name];
-            }
-        });
-    });
-}, intervals.NODE_CHECK);
+// // listClusterCustomObject(group: string, version: string, plural: string, pretty?: string, _continue?: string, fieldSelector?: string, labelSelector?: string, limit?: number, resourceVersion?: string, timeoutSeconds?: number, watch?: boolean, options?: {
+// customObjectsApi.listClusterCustomObject(
+//     "machineconfiguration.openshift.io",
+//     "v1",
+//     "machineconfigpools",
+// ).then(res => {
+//     console.log(JSON.stringify(res, null ,2));
+//     process.exit();
+// }).catch(err => {
+//     console.log(err);
+//     // do nothing
+// });
 
-const watchWithReconnect = (watchExpr, handler) => {
-    const startWatching = () => {
-        watch.watch(watchExpr, {}, (phase, obj) => handler(phase, obj), (err) => {
-            logger.error("error watching "+watchExpr+" - restarting in a few secs");
-            logger.error(err);
-            setTimeout(() => startWatching(), 1000*4);
-        });
-    };
-    startWatching();
-};
+const ns = new NamespaceWatcher(kc, logger, 1000*5*60);
+ns.onCreate(obj => bot.send("namespace created: `" + obj.metadata.name + "`", colors.BLUE, icons.INFO));
+ns.onDelete(name => bot.send("namespace deleted: `" + name + "`", colors.RED, icons.ERROR));
+ns.setup();
 
-watchWithReconnect("/api/v1/namespaces", (phase, obj) =>{
-    if ( Object.keys(namespaceCache).length != 0 ) {
-        if ( namespaceCache[obj.metadata.name] == undefined ) {
-            sendMessageToSlack("namespace created: `" + obj.metadata.name + "`", colors.BLUE, icons.INFO);
-            namespaceCache[obj.metadata.name] = true;
-        } else {
-            if ( obj.status && obj.status.phase && obj.status.phase == 'Terminating' ) {
-                sendMessageToSlack("namespace terminating: `" + obj.metadata.name + "`", colors.RED, icons.ERROR);
-            }
-        }
-    }
-});
-
-watchWithReconnect("/api/v1/nodes", (phase, obj) =>{
+const checkTaints = obj => {
     const name = obj.metadata.name;
     const spec = obj.spec;
-
-    // check if new node
-    if ( Object.keys(nodeCache).length > 0 ) {
-        if ( nodeCache[name] == undefined ) {
-            nodeCache[name] = true;
-            sendMessageToSlack('Node `' + name + "` is added", colors.YELLOW, icons.INFO);
-        }
-    }
 
     // check taints
     let currentTaints = {};
@@ -210,16 +142,16 @@ watchWithReconnect("/api/v1/nodes", (phase, obj) =>{
                 if ( currentTaints[taintKey] ) {
                     // add time as a marker
                     taintTimeCache[name][taintKey] = setInterval(() => {
-                        sendMessageToSlack('Node `' + name + "` still has the taint `" + taintKey + "`", colors.RED, icons.QUESTION);
+                        bot.send('Node `' + name + "` still has the taint `" + taintKey + "`", colors.RED, icons.QUESTION);
                     }, intervals.STILL_TAINTED);
 
-                    sendMessageToSlack('Node `' + name + "` has the taint `" + taintKey + "`", colors.RED, icons.ERROR);
+                    bot.send('Node `' + name + "` has the taint `" + taintKey + "`", colors.RED, icons.ERROR);
                 } else {
                     if ( taintTimeCache[name][taintKey] != undefined ) {
                         clearInterval(taintTimeCache[name][taintKey]);
                         delete taintTimeCache[name][taintKey];
                     }
-                    sendMessageToSlack('Node `' + name + "` has no taint `" + taintKey + "` again!", colors.GREEN, icons.OK);
+                    bot.send('Node `' + name + "` has no taint `" + taintKey + "` again!", colors.GREEN, icons.OK);
                 }
             }
         });
@@ -227,7 +159,22 @@ watchWithReconnect("/api/v1/nodes", (phase, obj) =>{
 
     // update cache
     cache[name] = currentTaints;
+};
+
+// watch nodes
+const n = new NodeWatcher(kc, logger, intervals.NODE_CHECK);
+n.onDelete(name => {
+    Object.keys(taintTimeCache[name]).forEach(taintKey => {
+        clearInterval(taintTimeCache[name][taintKey]);
+    });
+    delete taintTimeCache[name];
 });
+n.onCreate(obj => {
+    bot.send('Node `' + obj.metadata.name + "` is added", colors.YELLOW, icons.INFO)
+    checkTaints(obj);
+});
+n.onUpdate(obj => checkTaints(obj));
+n.setup();
 
 app.get('/live', (req, res) => res.send("OK")); // live and readiness probe
 
