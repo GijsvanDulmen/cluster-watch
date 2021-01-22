@@ -6,6 +6,7 @@ const SlackBot = require('./lib/SlackBot.js');
 const k8s = require('@kubernetes/client-node');
 const NamespaceWatcher = require('./lib/NamespaceWatcher.js');
 const NodeWatcher = require('./lib/NodeWatcher.js');
+const MachineConfigPoolWatcher = require('./lib/MachineConfigPoolWatcher.js');
 
 // setup logger
 const logger = winston.createLogger({
@@ -74,21 +75,44 @@ setInterval(() => {
     bot.send("i am still running and should be after an hour", colors.BLUE, icons.INFO);
 }, intervals.WATCHDOG);
 
-// const customObjectsApi = kc.makeApiClient(k8s.CustomObjectsApi);
+// machine config pool
+const mcp = new MachineConfigPoolWatcher(kc, logger);
+const mcpCache = {};
+const statusFieldsToMonitor = [
+    "degradedMachineCount",
+    "machineCount",
+    "observedGeneration",
+    "readyMachineCount",
+    "unavailableMachineCount",
+    "updatedMachineCount"
+];
 
-// // listClusterCustomObject(group: string, version: string, plural: string, pretty?: string, _continue?: string, fieldSelector?: string, labelSelector?: string, limit?: number, resourceVersion?: string, timeoutSeconds?: number, watch?: boolean, options?: {
-// customObjectsApi.listClusterCustomObject(
-//     "machineconfiguration.openshift.io",
-//     "v1",
-//     "machineconfigpools",
-// ).then(res => {
-//     console.log(JSON.stringify(res, null ,2));
-//     process.exit();
-// }).catch(err => {
-//     console.log(err);
-//     // do nothing
-// });
+mcp.onInit(obj => {
+    const name = obj.metadata.name;
+    mcpCache[name] = {};
+    statusFieldsToMonitor.forEach(field => {
+        mcpCache[name][field] = obj.status[field];
+    });
+    logger.info(name + ": " + JSON.stringify(mcpCache[name]));
+});
+mcp.onUpdate(obj => {
+    const name = obj.metadata.name;
+    if ( mcpCache[name] == undefined ) {
+        mcpCache[name] = {};
+    }
 
+    statusFieldsToMonitor.forEach(field => {
+        if ( mcpCache[name][field] != undefined ) {
+            if ( mcpCache[name][field] != obj.status[field] ) {
+                bot.send("MachineConfigPool `"+name+"` field `"+field+"` changed to `"+obj.status[field]+"`");
+            }
+        }
+        mcpCache[name][field] = obj.status[field];
+    });
+});
+mcp.setup();
+
+// namespaces
 const ns = new NamespaceWatcher(kc, logger, 1000*5*60);
 ns.onCreate(obj => bot.send("namespace created: `" + obj.metadata.name + "`", colors.BLUE, icons.INFO));
 ns.onDelete(name => bot.send("namespace deleted: `" + name + "`", colors.RED, icons.ERROR));

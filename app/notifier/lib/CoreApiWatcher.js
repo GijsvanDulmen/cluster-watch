@@ -16,6 +16,7 @@ module.exports = class CoreApiWatcher extends EventEmitter {
     onCreate(cb) { this.on("created", cb); }
     onUpdate(cb) { this.on("update", cb); }
     onDelete(cb) { this.on("delete", cb); }
+    onInit(cb) { this.on("init", cb); }
 
     checkDeletionEvery(checkEveryMs) {
         setInterval(() => {
@@ -42,6 +43,7 @@ module.exports = class CoreApiWatcher extends EventEmitter {
     init() {
         this.listFn().then(res => {
             this.cache = this.collectNames(res);
+            res.body.items.forEach(item => this.emit("init", item));
             this.logger.info(this.watchExpr + " cache filled with " + Object.keys(this.cache).length + " items");
         });
     }
