@@ -120,7 +120,7 @@ const checkApiServerResponse = () => {
     coreV1Api.readNamespace("default").then(res => {
         const end = new Date();
         const ms = end.getTime() - start.getTime();
-        if ( ms > 30 ) {
+        if ( ms > 500 ) {
             sendMessageToSlack("api server response time `" + ms + "ms`", colors.YELLOW, icons.HOURGLASS);
         }
     });
