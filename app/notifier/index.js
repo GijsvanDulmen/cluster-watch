@@ -137,6 +137,11 @@ setInterval(() => {
             if ( names[name] == undefined ) {
                 sendMessageToSlack("node deleted from cluster `"+name+"`", colors.RED, icons.ERROR);
                 delete nodeCache[name];
+
+                Object.keys(taintTimeCache[name]).forEach(taintKey => {
+                    clearInterval(taintTimeCache[name][taintKey]);
+                });
+                delete taintTimeCache[name];
             }
         });
     });
