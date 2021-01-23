@@ -104,7 +104,7 @@ mcp.onUpdate(obj => {
     statusFieldsToMonitor.forEach(field => {
         if ( mcpCache[name][field] != undefined ) {
             if ( mcpCache[name][field] != obj.status[field] ) {
-                bot.send("MachineConfigPool `"+name+"` field `"+field+"` changed to `"+obj.status[field]+"`", colors.YELLOW, icons.INFO);
+                bot.send("MachineConfigPool `"+name+"` field `"+field+"` changed from `"+mcpCache[name][field]+"` to `"+obj.status[field]+"`", colors.YELLOW, icons.INFO);
             }
         }
         mcpCache[name][field] = obj.status[field];
