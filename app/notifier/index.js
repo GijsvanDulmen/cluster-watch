@@ -7,6 +7,7 @@ const k8s = require('@kubernetes/client-node');
 const NamespaceWatcher = require('./lib/NamespaceWatcher.js');
 const NodeWatcher = require('./lib/NodeWatcher.js');
 const MachineConfigPoolWatcher = require('./lib/MachineConfigPoolWatcher.js');
+const MachineConfigWatcher = require('./lib/MachineConfigWatcher.js');
 
 // setup logger
 const logger = winston.createLogger({
@@ -111,6 +112,13 @@ mcp.onUpdate(obj => {
     });
 });
 mcp.setup();
+
+// machine config watcher
+const mc = new MachineConfigWatcher(kc, logger);
+mc.onCreate(obj => {
+    bot.send("New MachineConfig `"+obj.metadata.name+"` available", colors.YELLOW, icons.INFO);
+});
+mc.setup();
 
 // namespaces
 const ns = new NamespaceWatcher(kc, logger, 1000*5*60);
