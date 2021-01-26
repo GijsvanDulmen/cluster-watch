@@ -10,7 +10,7 @@ spec:
 kind: BuildConfig
 apiVersion: build.openshift.io/v1
 metadata:
-  name: "cluster-watch-build" 
+  name: cluster-watch-build
   namespace: cluster-watch
 spec:
   runPolicy: "Serial"
@@ -23,6 +23,7 @@ spec:
   strategy:
     type: Docker
     dockerStrategy: {}
+  triggers: []
   output: 
     to:
       kind: ImageStreamTag
