@@ -148,7 +148,7 @@ ns.setup();
 const checkApiServerResponse = () => {
     ns.checkApiServerResponse(ms => {
         if ( ms > 500 ) {
-            bot.send("api server response time `" + ms + "ms`", colors.YELLOW, icons.HOURGLASS);
+            bot.send("high api server response time of `" + ms + "ms`!", colors.YELLOW, icons.HOURGLASS);
         }
     })
 };
