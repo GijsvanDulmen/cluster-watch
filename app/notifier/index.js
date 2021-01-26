@@ -154,7 +154,7 @@ const checkApiServerResponse = () => {
 };
 
 setInterval(() => checkApiServerResponse(), intervals.API_RESPONSE_TIMES);
-checkApiServerResponse();
+// checkApiServerResponse();
 
 const updateNodeRoles = obj => {
     const name = obj.metadata.name;
