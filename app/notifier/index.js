@@ -75,10 +75,15 @@ const icons = {
     WAVE: ":wave:"
 };
 
+let watchdogTimeout = 1000*60*60;
+if ( process.env.WATCHDOG_SECONDS != undefined ) {
+    watchdogTimeout = 1000*parseInt(process.env.WATCHDOG_SECONDS);
+}
+
 const intervals = {
     API_RESPONSE_TIMES: 1000*60*5,
     NODE_CHECK: 1000*5,
-    WATCHDOG: 1000*60*60,
+    WATCHDOG: watchdogTimeout,
     STILL_TAINTED: 1000*60*5,
 };
 
