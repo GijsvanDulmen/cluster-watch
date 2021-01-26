@@ -89,7 +89,7 @@ const intervals = {
 
 // watchdog every 1 hour
 setInterval(() => {
-    bot.send("i am still running and should be after an hour", colors.BLUE, icons.INFO);
+    bot.send("i am still running", colors.BLUE, icons.INFO);
 }, intervals.WATCHDOG);
 
 // machine config pool
