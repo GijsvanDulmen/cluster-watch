@@ -31,6 +31,14 @@ rules:
     - list
     - watch
     - get
+- apiGroups:
+    - operators.coreos.com
+  resources: 
+    - installplans
+  verbs:
+    - list
+    - watch
+    - get
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
