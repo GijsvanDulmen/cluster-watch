@@ -8,6 +8,7 @@ const NamespaceWatcher = require('./lib/NamespaceWatcher.js');
 const NodeWatcher = require('./lib/NodeWatcher.js');
 const MachineConfigPoolWatcher = require('./lib/MachineConfigPoolWatcher.js');
 const MachineConfigWatcher = require('./lib/MachineConfigWatcher.js');
+const InstallPlanWatcher = require('./lib/InstallPlanWatcher.js');
 
 // setup logger
 const logger = winston.createLogger({
@@ -136,6 +137,37 @@ if ( enableOpenshift ) {
         bot.send("New MachineConfig `"+obj.metadata.name+"` available", colors.YELLOW, icons.INFO);
     });
     mc.setup();
+    
+    // installplan watcher
+    const ipw = new InstallPlanWatcher(kc, logger);
+    // ipw.onInit(obj => {
+    ipw.onCreate(obj => {
+        console.log(JSON.stringify(obj.spec, null, 2));
+        console.log(JSON.stringify(obj.metadata, null, 2));
+
+        let versions = ' for ';
+        if ( obj.spec.clusterServiceVersionNames ) {
+            versions = ' for `'+obj.spec.clusterServiceVersionNames.join("`,`")+'`';
+        }
+
+        let icon;
+        let color;
+
+        if ( obj.spec.approved ) {
+            color = colors.RED;
+            icon = icons.ERROR;
+        } else if ( obj.spec.approved ) {
+            color = colors.GREEN;
+            if ( obj.spec.approval != 'Automatic' ) {
+                icon = icons.QUESTION;
+            } else {
+                icon = icons.INFO;
+            }
+        }
+
+        bot.send("New InstallPlan in namespace `"+obj.metadata.namespace+"` available with approval on `"+obj.spec.approval+"` and approved `"+obj.spec.approved+"`" + versions, color, icon);
+    });
+    ipw.setup();
 }
 
 // namespaces
