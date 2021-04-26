@@ -42,6 +42,11 @@ if ( process.env.DISABLE_OPENSHIFT != undefined
 }
 logger.info("openshift support enabled: " + enableOpenshift);
 
+let ignoreNamespaces = [];
+if ( process.env.IGNORE_NAMESPACES != undefined ) {
+    ignoreNamespaces.push(...process.env.IGNORE_NAMESPACES.split(","));
+}
+
 // setup slack bot
 const bot = new SlackBot(process.env.SLACK_CHANNEL, process.env.SLACK_TOKEN, logger);
 
@@ -172,8 +177,27 @@ if ( enableOpenshift ) {
 
 // namespaces
 const ns = new NamespaceWatcher(kc, logger, 1000*5*60);
-ns.onCreate(obj => bot.send("namespace created: `" + obj.metadata.name + "`", colors.BLUE, icons.INFO));
-ns.onDelete(name => bot.send("namespace deleted: `" + name + "`", colors.BLUE, icons.WAVE));
+
+const isIgnoreNamespace = ns => {
+    let ignore = false;
+    ignoreNamespaces.forEach(ignoreNamespace => {
+        if ( ns.indexOf(ignoreNamespace) != -1 ) {
+            ignore = true;
+        }
+    });
+    return ignore;
+};
+
+ns.onCreate(obj => {
+    if ( !isIgnoreNamespace(obj.metadata.name) ) {
+        bot.send("namespace created: `" + obj.metadata.name + "`", colors.BLUE, icons.INFO)
+    }
+});
+ns.onDelete(name => {
+    if ( !isIgnoreNamespace(obj.metadata.name) ) {
+        bot.send("namespace deleted: `" + name + "`", colors.BLUE, icons.WAVE)
+    }
+});
 ns.setup();
 
 // api server response time
