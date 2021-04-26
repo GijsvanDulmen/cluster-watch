@@ -45,6 +45,7 @@ logger.info("openshift support enabled: " + enableOpenshift);
 let ignoreNamespaces = [];
 if ( process.env.IGNORE_NAMESPACES != undefined ) {
     ignoreNamespaces.push(...process.env.IGNORE_NAMESPACES.split(","));
+    logger.info("ignoring namespaces: " + process.env.IGNORE_NAMESPACES);
 }
 
 // setup slack bot
