@@ -9,13 +9,51 @@ module.exports = class SlackBot {
         this.logger.info("using slack channel: " + this.channel);
     }
 
-    send(text, color, icon) {
+    sendMultiple(events) {
+        let blocks = [];
+        blocks.push({
+            type: "section",
+            text: {
+                type: "mrkdwn",
+                text: events[0].getIcon() + ' ' + events[0].getGroupHeader()
+            }
+        });
+        
+        blocks.push(...events.map(event => {
+            return {
+                type: "context",
+                elements: [
+                    {
+                        type: "mrkdwn",
+                        text: event.getDetailMessage()
+                    }
+                ]
+            }
+        })); 
+
+        /*
+        blocks.push({
+            type: "context",
+			elements: [
+				{
+					type: "mrkdwn",
+					text: "*" + new Date().toLocaleDateString('nl-NL') + "*"
+				}
+			]
+        });
+        
+
+        blocks.push({
+			type: "divider"
+		});
+        */
+
         this.api.chat.postMessage({
             channel: this.channel,
             attachments: [
                 {
-                    text: icon + ' ' + text,
-                    color: color
+                    color: events[0].getColor(),
+                    blocks: blocks
                 }
             ]
         }).then(res => {
@@ -23,5 +61,5 @@ module.exports = class SlackBot {
         }).catch(err => {
             this.logger.error(err);
         });
-    };
+    }
 }

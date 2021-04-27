@@ -3,6 +3,13 @@ const express = require('express');
 const app = express();
 const SlackBot = require('./lib/SlackBot.js');
 
+// constants
+const colors = require('./lib/Colors');
+const icons = require('./lib/Icons.js');
+
+const EventManager = require('./lib/EventManager');
+const Event = require('./lib/Event');
+
 const k8s = require('@kubernetes/client-node');
 const NamespaceWatcher = require('./lib/NamespaceWatcher.js');
 const NodeWatcher = require('./lib/NodeWatcher.js');
@@ -35,7 +42,6 @@ if ( process.env.KUBERNETES_SERVICE_HOST ) {
 
 // check for openshift
 let enableOpenshift = true;
-console.log(process.env.DISABLE_OPENSHIFT);
 if ( process.env.DISABLE_OPENSHIFT != undefined
     && process.env.DISABLE_OPENSHIFT == "true") {
     enableOpenshift = false;
@@ -49,7 +55,29 @@ if ( process.env.IGNORE_NAMESPACES != undefined ) {
 }
 
 // setup slack bot
-const bot = new SlackBot(process.env.SLACK_CHANNEL, process.env.SLACK_TOKEN, logger);
+const specs = [
+    {
+        bot: new SlackBot(process.env.SLACK_CHANNEL, process.env.SLACK_TOKEN, logger),
+        filter: false
+    }
+];
+
+if ( process.env.NODE_ROLES_SLACK_CHANNEL ) {
+    const channelPerNodeRole = JSON.parse(process.env.NODE_ROLES_SLACK_CHANNEL);
+    channelPerNodeRole.forEach(channel => {
+        specs.push({
+            bot: new SlackBot(channel.channel, process.env.SLACK_TOKEN, logger),
+            filter: true,
+            keys: [
+                'nodes.' + channel.role // only worker node messages
+            ]
+        })
+    })
+}
+
+console.log(specs);
+
+const eventManager = new EventManager(1500, specs);
 
 const cache = {};
 const taintTimeCache = {};
@@ -66,22 +94,6 @@ const taintsToWatch = {
     Uninitialized: 'node.cloudprovider.kubernetes.io/uninitialized'
 };
 
-const colors = {
-    RED: '#FF0000',
-    GREEN: '#078107',
-    BLUE: '#06A6D1',
-    YELLOW: '#EDC707'
-};
-
-const icons = {
-    ERROR: ':bangbang:',
-    OK: ":white_check_mark:",
-    INFO: ":building_construction:",
-    QUESTION: ":question:",
-    HOURGLASS: ":hourglass:",
-    WAVE: ":wave:"
-};
-
 let watchdogTimeout = 1000*60*60;
 if ( process.env.WATCHDOG_SECONDS != undefined ) {
     watchdogTimeout = 1000*parseInt(process.env.WATCHDOG_SECONDS);
@@ -96,7 +108,8 @@ const intervals = {
 
 // watchdog every 1 hour
 setInterval(() => {
-    bot.send("i am still running", colors.BLUE, icons.INFO);
+    const event = new Event("activity", "i am still running", colors.BLUE, icons.INFO, 'watchdog', 'watchdog');
+    eventManager.add();
 }, intervals.WATCHDOG);
 
 // machine config pool
@@ -129,7 +142,10 @@ if ( enableOpenshift ) {
         statusFieldsToMonitor.forEach(field => {
             if ( mcpCache[name][field] != undefined ) {
                 if ( mcpCache[name][field] != obj.status[field] ) {
-                    bot.send("MachineConfigPool `"+name+"` field `"+field+"` changed from `"+mcpCache[name][field]+"` to `"+obj.status[field]+"`", colors.YELLOW, icons.INFO);
+                    const groupHeader = "MachineConfigPool `"+name+"`";
+                    const detailMessage = "`"+field+"` changed from `"+mcpCache[name][field]+"` to `"+obj.status[field]+"`";
+                    const event = new Event(groupHeader, detailMessage, colors.YELLOW, icons.INFO, 'machineconfigpool.'+name, ['machineconfigpool', 'machineconfigpool.'+name]);
+                    eventManager.add(event)
                 }
             }
             mcpCache[name][field] = obj.status[field];
@@ -140,7 +156,11 @@ if ( enableOpenshift ) {
     // machine config watcher
     const mc = new MachineConfigWatcher(kc, logger);
     mc.onCreate(obj => {
-        bot.send("New MachineConfig `"+obj.metadata.name+"` available", colors.YELLOW, icons.INFO);
+        const name = obj.metadata.name;
+        const groupHeader = "New MachineConfig `"+name+"` available";
+        const detailMessage = "New MachineConfig `"+name+"` available";
+        const event = new Event(groupHeader, detailMessage, colors.YELLOW, icons.INFO, 'machineconfig.'+name, ['machineconfig', 'machineconfig.'+name]);
+        eventManager.add(event);
     });
     mc.setup();
     
@@ -148,9 +168,6 @@ if ( enableOpenshift ) {
     const ipw = new InstallPlanWatcher(kc, logger);
     // ipw.onInit(obj => {
     ipw.onCreate(obj => {
-        console.log(JSON.stringify(obj.spec, null, 2));
-        console.log(JSON.stringify(obj.metadata, null, 2));
-
         let versions = ' for ';
         if ( obj.spec.clusterServiceVersionNames ) {
             versions = ' for `'+obj.spec.clusterServiceVersionNames.join("`,`")+'`';
@@ -171,7 +188,10 @@ if ( enableOpenshift ) {
             }
         }
 
-        bot.send("New InstallPlan in namespace `"+obj.metadata.namespace+"` available with approval on `"+obj.spec.approval+"` and approved `"+obj.spec.approved+"`" + versions, color, icon);
+        const detailMessage = "New InstallPlan in namespace `"+obj.metadata.namespace+"` available with approval on `"+obj.spec.approval+"` and approved `"+obj.spec.approved+"`" + versions;
+        const groupHeader = 'InstallPlans';
+        const event = new Event(groupHeader, detailMessage, color, icon, 'installplan', 'installplane');
+        eventManager.add(event);
     });
     ipw.setup();
 }
@@ -191,12 +211,19 @@ const isIgnoreNamespace = ns => {
 
 ns.onCreate(obj => {
     if ( !isIgnoreNamespace(obj.metadata.name) ) {
-        bot.send("namespace created: `" + obj.metadata.name + "`", colors.BLUE, icons.INFO)
+        const name = obj.metadata.name;
+        const groupHeader = "Namespaces";
+        const detailMessage = "Created: `" + name + "`";
+        const event = new Event(groupHeader, detailMessage, colors.BLUE, icons.INFO, 'namespace', ['namespace', 'namespace.'+name]);
+        eventManager.add(event);
     }
 });
 ns.onDelete(name => {
-    if ( !isIgnoreNamespace(obj.metadata.name) ) {
-        bot.send("namespace deleted: `" + name + "`", colors.BLUE, icons.WAVE)
+    if ( !isIgnoreNamespace(name) ) {
+        const groupHeader = "Namespaces";
+        const detailMessage = "Deleted: `" + name + "`";
+        const event = new Event(groupHeader, detailMessage, colors.BLUE, icons.WAVE, 'namespace', ['namespace', 'namespace.'+name]);
+        eventManager.add(event);
     }
 });
 ns.setup();
@@ -205,7 +232,10 @@ ns.setup();
 const checkApiServerResponse = () => {
     ns.checkApiServerResponse(ms => {
         if ( ms > 500 ) {
-            bot.send("high api server response time of `" + ms + "ms`!", colors.YELLOW, icons.HOURGLASS);
+            const groupHeader = "API Server";
+            const detailMessage = "High response time of `" + ms + "ms`!";
+            const event = new Event(groupHeader, detailMessage, colors.YELLOW, icons.HOURGLASS, 'apiserver', ['apiserver', 'apiserver.slow']);
+            eventManager.add(event);
         }
     })
 };
@@ -235,8 +265,15 @@ const getRoleNodeStr = name => {
     if ( nodeRoleCache[name] && nodeRoleCache[name].length > 0 ) {
         nodeRoleString = ' roles `'+nodeRoleCache[name].join('`/`')+'`';
     }
-    console.log(nodeRoleString);
     return nodeRoleString;
+};
+
+const getRoleNodeFilterKeys = name => {
+    let filterKeys = [];
+    if ( nodeRoleCache[name] && nodeRoleCache[name].length > 0 ) {
+        filterKeys.push(...nodeRoleCache[name]);
+    }
+    return filterKeys;
 };
 
 const checkTaints = obj => {
@@ -269,19 +306,34 @@ const checkTaints = obj => {
         Object.keys(taintsToWatch).forEach(taintKey => {
             if ( cache[name][taintKey] !== currentTaints[taintKey] ) {
                 logger.info("node " + name + " taint " + taintKey + " is " + currentTaints[taintKey]);
+
+                const filterKeys = getRoleNodeFilterKeys(name).map(v => 'nodes.'+v);
+                filterKeys.push('taints');
+
+                const roles = getRoleNodeStr(name);
+
+                const groupHeader = 'Node `' + name + "`"+roles;
+                
                 if ( currentTaints[taintKey] ) {
                     // add time as a marker
                     taintTimeCache[name][taintKey] = setInterval(() => {
-                        bot.send('Node `' + name + "`"+getRoleNodeStr(name)+" still has the taint `" + taintKey + "`", colors.RED, icons.QUESTION);
+                        const detailMessage = "Still has the taint `" + taintKey + "`";
+                        const event = new Event(groupHeader, detailMessage, colors.RED, icons.QUESTION, 'nodes.'+name, filterKeys);
+                        eventManager.add(event);
                     }, intervals.STILL_TAINTED);
 
-                    bot.send('Node `' + name + "`"+getRoleNodeStr(name)+" tainted `" + taintKey + "`", colors.RED, icons.ERROR);
+                    const detailMessage = "Tainted `" + taintKey + "`";
+                    const event = new Event(groupHeader, detailMessage, colors.RED, icons.ERROR, 'nodes.'+name, filterKeys);
+                    eventManager.add(event);
                 } else {
                     if ( taintTimeCache[name][taintKey] != undefined ) {
                         clearInterval(taintTimeCache[name][taintKey]);
                         delete taintTimeCache[name][taintKey];
                     }
-                    bot.send('Node `' + name + "`"+getRoleNodeStr(name)+" untainted `" + taintKey + "` again!", colors.GREEN, icons.OK);
+
+                    const detailMessage = "Taint removed `" + taintKey + "`";
+                    const event = new Event(groupHeader, detailMessage, colors.GREEN, icons.OK, 'nodes.'+name, filterKeys);
+                    eventManager.add(event);
                 }
             }
         });
@@ -294,7 +346,14 @@ const checkTaints = obj => {
 // watch nodes
 const n = new NodeWatcher(kc, logger, intervals.NODE_CHECK);
 n.onDelete(name => {
-    bot.send('Node `' + name + "` " + getRoleNodeStr(name) + " deleted", colors.YELLOW, icons.WAVE)
+    const filterKeys = getRoleNodeFilterKeys(name).map(v => 'nodes.'+v);
+    filterKeys.push('nodes');
+
+    const roles = getRoleNodeStr(name);
+    const groupHeader = 'Node `' + name + "`"+roles;
+    const detailMessage = 'Node is deleted';
+    const event = new Event(groupHeader, detailMessage, colors.YELLOW, icons.WAVE, 'nodes.'+name, filterKeys);
+    eventManager.add(event);
 
     Object.keys(taintTimeCache[name]).forEach(taintKey => {
         clearInterval(taintTimeCache[name][taintKey]);
@@ -305,7 +364,17 @@ n.onDelete(name => {
 n.onCreate(obj => {
     updateNodeRoles(obj);
     
-    bot.send('Node `' + obj.metadata.name + "` added" + getRoleNodeStr(obj.metadata.name), colors.YELLOW, icons.INFO)
+    const name = obj.metadata.name;
+    const filterKeys = getRoleNodeFilterKeys(name).map(v => 'nodes.'+v);
+    filterKeys.push('nodes');
+
+    const roles = getRoleNodeStr(name);
+
+    const groupHeader = 'Node `' + name + "`"+roles;
+    const detailMessage = 'Node is added';
+    const event = new Event(groupHeader, detailMessage, colors.YELLOW, icons.INFO, 'nodes.'+name, filterKeys);
+    eventManager.add(event);
+
     checkTaints(obj);
 });
 n.onInit(obj => updateNodeRoles(obj));
