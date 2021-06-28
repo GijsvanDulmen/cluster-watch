@@ -9,7 +9,7 @@
   "author": "Gijs van Dulmen",
   "license": "Mozilla Public License 2.0",
   "dependencies": {
-    "@kubernetes/client-node": "^0.14.0",
+    "@kubernetes/client-node": "^0.15.0",
     "@slack/web-api": "^5.13.0",
     "express": "^4.17.1",
     "winston": "^3.3.3"
