@@ -108,8 +108,8 @@ const intervals = {
 
 // watchdog every 1 hour
 setInterval(() => {
-    const event = new Event("activity", "i am still running", colors.BLUE, icons.INFO, 'watchdog', 'watchdog');
-    eventManager.add();
+    const event = new Event("Watchdog", "i am still running", colors.BLUE, icons.INFO, 'watchdog', 'watchdog');
+    eventManager.add(event);
 }, intervals.WATCHDOG);
 
 // machine config pool
