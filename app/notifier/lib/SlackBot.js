@@ -50,10 +50,11 @@ module.exports = class SlackBot {
 
         this.api.chat.postMessage({
             channel: this.channel,
+            text: "Cluster-watch events",
             attachments: [
                 {
                     color: events[0].getColor(),
-                    blocks: blocks
+                    blocks: blocks,
                 }
             ]
         }).then(res => {
